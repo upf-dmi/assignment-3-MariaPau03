@@ -1,6 +1,6 @@
 ---
-title: "my title"
-author: "Dummy Surname (dummy@mail.com)"
+title: "Hands_on_III"
+author: "Maria Pau Pijoan (mariapau.pijoan01@estudiant.upf.edu)"
 date: "Last update: `r format(Sys.time(), '%d %B, %Y')`"      
 output:
   html_document:
@@ -28,19 +28,255 @@ How well does the Random Forest model separate non-Severe from Severe patients b
 
 ```{r}
 
+#PACKAGE INSTALLATION!:
+
+# install.packages("readxl")
+# install.packages("tidyverse")
+# install.packages("janitor")
+# install.packages("caTools")
+# install.packages("randomForest")
+# install.packages("tidymodels")
+# install.packages("parsnip")
+# install.packages("caret")
+
+
+library(tidyverse)
+library(readxl)
+library(janitor) #clean_names function
+library(dplyr)
+
+
+df <- read_excel("./1-s2.0-S0092867420306279-mmc3.xlsx", sheet = 2)
+df_cleaned <- clean_names(df) 
+
+#Now we have patients in columns and proteins in rows. To run most analyisis, the structure needs to be flipped. Columns (variable) --> something we measure (proteins) and in Rows (observations) --> individual entity (patients). 
+
+#Extract actual patients IDs from the first row
+new_headers <- df_cleaned[1, ] %>%
+  select(patient_id:last_col()) %>% #start at patient_id til the enc
+  unlist() %>%
+  as.character()
+
+#Rename the columns of the dataframe uing these real patient IDs
+colnames(df_cleaned)[3:ncol(df_cleaned)] <- new_headers
+#Columns 1 and 2 stay as they are, only columns 3 to onwards become XG1, XG2, etc
+
+#Now transpose the table!
+
+df_cleaned_final <- df_cleaned %>%
+  slice(-1) %>%                         # Remove that first row now that we've used it for names
+  pivot_longer(
+    cols = all_of(new_headers),         # Pivot all the patient columns (XG1, XG2...)
+    names_to = "patient_id",            # New column to hold the patient names
+    values_to = "expression"            # New column to hold the numeric values
+  ) %>%
+  select(-gene_symbol) %>%
+  pivot_wider(
+    names_from = proteins_metabolites,          
+    values_from = expression
+  ) %>%
+  # Convert the protein columns to numeric for the random forest
+  mutate(across(-patient_id, as.numeric))
+
+
+#Load the metadata to link patient_id with severity
+df_metdata <- read_excel("./1-s2.0-S0092867420306279-mmc1.xlsx", sheet = 2)
+df_metdata_cleaned <- clean_names(df_metdata) 
+colnames(df_metdata_cleaned)[1] <- "patient_id" #changed the name from patient_id_a to patient_id to match the column names between the 2 dataframes
+
+#Added in the df_final the group_d (severity) from df_metdata_cleaned
+df_metdata_cleaned <- df_metdata_cleaned %>% select(patient_id, group_d)
+df_final <- left_join(df_cleaned_final, df_metdata_cleaned, by = "patient_id") #2:non-Severe; 3: Severe
+#As this data contains also non-COVID and healthy patients, and the exercise tells to filter only between non-severe and severe, I will filter the df_final to only have non-severe and severe patients (only 2 and 3).
+
+df_final <- df_final %>%
+  filter(group_d %in% c(2, 3)) %>%
+  mutate(group_d = factor(group_d, levels = c(2,3), labels = c("non_Severe", "Severe"))) %>%
+  select(-patient_id) #remove ID so it's not used as a predictor
+table(df_final$group_d) #to see how many non-severe and severe patients are there and if we have removed the other groups correctly
+#Now df_final contains all proteins in columns, patients in rows and in the last column it appears group_d (and only contians non-severe and severe patients)
+
+
+#Now let's see the NA values (because RF cannot work if there are NA values)
+sum(is.na(df_final)) #Total NA values
+
+#Remove proteins with more than 20% missing values (this removes unreliable features). Because if a protein is missing in 80% of the patients, and I fill those gaps with the median of the 20% who actually had it, I am essentially inventing 80% of the data. And therefore, the RF might find a pattern in that protein, but that protein isn't biological, it's just a result of my imputation mehtod!!!
+na_threshold <- 0.2
+cols_to_keep <- colMeans(is.na(df_final)) <= na_threshold
+df_final_0.2_removed <- df_final[ , cols_to_keep]
+#At this point, we have removed some proteins that contained more than 20% missing values
+
+df_final_cleaned <- df_final_0.2_removed %>%
+  mutate(across(where(is.numeric), ~ifelse(is.na(.), median(., na.rm = TRUE), .)))
+sum(is.na(df_final_cleaned)) #now we have imputed the remaining NAs with the median
+
+#clean the columns in the df_final_cleaned becasue RF algorithm got crazy
+df_final_cleaned <- df_final_cleaned %>% 
+  clean_names()
+
+#At this point, I have obtained a tidy data format necessary for ML. As we have ~1600 proteins (features) but very few patients, RandomForest is a great choice because it handles "wide" data well. 
+
+library(randomForest)
+
+#Set seed for reproducibility (so I will get the same results every time)
+rf_model <- randomForest(as.factor(group_d) ~ .,
+                         data = df_final_cleaned,
+                         importance = TRUE, #essential for exercise 2, where need to idenitfy the top 25 proteins. so it tells R to calculate which proteins were most helpful in splitting the severe from non-severe groups
+                         ntree = 500)
+
+print(rf_model)
+
+
+# USING RECIPIE PACKAGE!!!!!
+
+## recipie makes the workflow more professional, reproducible, and robust. Defines the data preprocessing steps as a "blueprint" and in exercise 3 when doing the test, I won't have to manually repeat the cleaning, just apply this blueprint. 
+
+
+library(caret)
+library(recipes)
+library(pROC)
+
+# Prepare data
+# Ensure names are clean and variables are ready
+df_final_preclean <- df_final %>% janitor::clean_names()
+
+
+#Define the recipe (blueprint) (THIS IS DONE IN THE TEACHER SLIDES!!!!)
+# We keep your recipe steps, but we'll pass this directly into the caret 'train' function
+rf_recipe <- recipe(group_d ~ ., data = df_final_preclean) %>%
+  step_nzv(all_predictors()) %>%
+  step_impute_median(all_numeric_predictors()) %>%
+  step_normalize(all_numeric_predictors())
+
+# set uo training controls
+# This handles the 10-fold CV and collects data for the ROC curve
+ctrl <- trainControl(
+  method = "cv",
+  number = 10,
+  savePredictions = "final",       # Necessary to plot the ROC later
+  classProbs = TRUE,               # Necessary for AUC calculation
+)
+
+# Define tuning grid
+# Testing different numbers of predictors at each split
+p <- ncol(df_final_preclean) - 1 
+mtry_grid <- data.frame(mtry = c(1, 2, floor(sqrt(p)), floor(p/3), 10, 30))
+
+#train the model
+set.seed(123) # For reproducibility
+rf_model_2 <- train(
+  rf_recipe, 
+  data = df_final_preclean, 
+  method = "rf",
+  trControl = ctrl,
+  tuneGrid = mtry_grid,
+  metric = "Accuracy",                 
+  ntree = 500,
+  importance = TRUE
+)
+
+
+# Display the Table (mtry vs Accuracy/Kappa)
+print(rf_model_2)
+
+# Plot the Realistic ROC Curve
+# Using the cross-validated predictions (prevents the "perfect square" look)
+roc_obj <- roc(rf_model_2$pred$obs, rf_model_2$pred$Severe)
+
+# Draw the plot (this creates 'plot.new' inside the file)
+{
+  plot(roc_obj, col = "blue", lwd = 3, main = "ROC Curve (10-Fold Cross-Validation)")
+
+#Add the lines (these will now work)
+abline(a = 0, b = 1, lty = 2, col = "grey")
+
+# Add the legend
+legend("bottomright", 
+       legend = paste("AUC =", round(auc(roc_obj), 3)), 
+       col = "blue", 
+       lwd = 3, 
+       bty = "n")
+
+}
+#Generate the Confusion Matrix
+confusionMatrix(rf_model_2)
+
+
+
 ```
+
+As shown in the results, the "manual" model (rf_model) actually has a lower error rate (16,13%) than your recipie-based model (22,58%). Th emain reason is due to Feature Selection:
+
+- Manual model: manually removed proteins >20% NAs. This is likely left a very "strong" set of predictors.
+
+- Recipie model: ``` step_nzv() ``` is more gentle. It only removes columns that are almost entirely constant. It probably kept a lot of noisy porteins that the manual method discarded. 
+
+
+So, the manual model is technically better, but the recipie model is safer for exercise 3, so I'll stick with the ```final_fit ``` for the rest of the steps. 
+
+Using 10-fold-cross-validation, the RF model was optimized by testing various mtry values. The optimal model used 30 predictors at each split, achieving a cross-validated accuracy of 85.8% and a kappa of 0.69%. This indicates the model has strong predictive power and geenralizes well beyond the training data. 
+
+(mtry is a tunning parameter that controls the randomness and diversity of the trees in the forest. To decide which protein best separates Severe from non-Severe), it doesn't look at all 1639 proteins at once, instead the model randomly picks a subset of proteins, and the size of that subset is mtry, so the tree can only choose the best protein from that specific subset. So mtry = 30 means that the model had enough options to fins strong patterns but enough randomness to stay flexible, reaching a peak accuracy of 0.858).
+
+To further validate the model, the ROC Curve and the Confusion Matrix were analyzed. The model achieved an AUC of 0.917 which is considered an outstanding result for clinical classification. This indicates a 91,7% probability that the model will correctly rank a random Severe patient higher than a random non-Severe patient. 
+
+And the cross-validated confusion matrix shows an average Accuracy of 87,1. The model correctly identified this group in 51,6% of cases, with only 6,5% misclassified as severe. Then, the model correctly identified severe cases in 35,5% of instances, with 6,5% misclassified as non-severe. 
+
+All in all, the balance between sensitivity and specificity in these results confirms that the protein signatures identified are highly reliable markers for COVID-19 severity. 
+
 
 # Exercise 2
 
 **Identify and interpret the most important features**
 
-Using the trained Random Forest model from Exercise 1, identify the 25 most important protein features contributing to the classification. Disccus their biological relevance.
+Using the trained Random Forest model from Exercise 1, identify the 25 most important protein features contributing to the classification. Discuss their biological relevance.
 
 Compare your selected features to the proteins reported by the authors in Supplementary Table 5.
 
 ```{r}
+library(tidyverse)
+library(caret)
+library(janitor)
+
+# extract importance
+importance_results <- varImp(rf_model_2, scale = FALSE)
+
+# create top 25 list
+top_25_list <- importance_results$importance %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "Protein_ID") %>%
+  # Fix the case: Ensure Protein_ID is Uppercase to match the metadata
+  mutate(Protein_ID = toupper(Protein_ID)) %>%
+  arrange(desc(Severe)) %>% 
+  slice_head(n = 25)
+
+#prepare comparison data
+# We load the metadata and ensure the mapping ID is also Uppercase
+df_table_5_meta <- read_excel("./1-s2.0-S0092867420306279-mmc5.xlsx", sheet = 2) %>% 
+  clean_names() %>%
+  slice(-1) %>% # Remove the row used for patient IDs
+  select(proteins_metabolites, gene_symbol) %>%
+  distinct() %>%
+  mutate(proteins_metabolites = toupper(proteins_metabolites))
+
+# merge
+# Note: 'Protein_ID' from your list matches 'proteins_metabolites' from the metadata
+top_25_named <- top_25_list %>% 
+  left_join(df_table_5_meta, by = c("Protein_ID" = "proteins_metabolites"))
+
+# view results
+print(top_25_named)
+
+# plot
+plot(importance_results, top = 25, main = "Exercise 2: Top 25 Protein Predictors")
 
 ```
+
+The gene symbols appearing next to your protein IDs (like SAA1, CRP, and HP) mean that the model successfully identified the same high-level biological markers that the researchers focused on. In the raw data, these are just technical accession numbers (like P02741), but by mapping them to gene symbols, it has been proven that the model "picked" the COVID-19 markers. If a protein has a gene symbol in the table, it is a known, named protein that the researchers also analyzed.
+
+Based on the shared results obtained in this table, SAA1, SAA2 and CRP are the primary markers of the cytokine storm and systemic inflammation. SERPING1 and SERPINA3 indicate the activation of the body's innate defense and blood-clotting regulations. LUM and ITIH3 are linked to how the body repairs or scars connective tissue, particularly in the lungs. 
+
+
 
 # Exercise 3
 
@@ -60,7 +296,109 @@ How does the model perform on the independent test cohort?
 
 ```{r}
 
+df_test_raw <- read_excel("./1-s2.0-S0092867420306279-mmc4.xlsx", sheet = 2) %>%
+  clean_names()
+
+#Comparison based on supplementary table 4
+df_metdata_cleaned_2 <- df_metdata_cleaned %>%
+  mutate(
+    group = case_when(
+      group_d %in% c(0, 1) ~ "Non-COVID-19",
+      group_d == 2 ~ "Non-severe",
+      group_d == 3 ~ "Severe",
+      TRUE ~ NA_character_
+    ),
+    group = factor(group, levels = c("Non-severe", "Severe"))
+  ) %>%
+  select(patient_id, group) %>%
+  filter(group %in% c("Non-severe", "Severe"))
+
+
+new_headers <- df_test_raw[1, ] %>%
+  select(patient_id:last_col()) %>% 
+  unlist() %>%
+  as.character()
+
+colnames(df_test_raw)[3:ncol(df_test_raw)] <- new_headers
+
+df_test_raw_final <- df_test_raw %>%
+  slice(-1) %>%                     
+  pivot_longer(
+    cols = all_of(new_headers),         
+    names_to = "patient_id",         
+    values_to = "expression"           
+  ) %>%
+  select(-gene_symbol) %>%
+  pivot_wider(
+    names_from = proteins_metabolites,          
+    values_from = expression
+  ) %>%
+  mutate(across(-patient_id, as.numeric))
+
+df_test_with_labels <- df_test_raw_final %>%
+  inner_join(df_metdata_cleaned_2, by = "patient_id") %>%
+  mutate(group = recode(group, "Non-severe" = "non_Severe")) %>%
+  mutate(group = factor(group, levels = c("non_Severe", "Severe"))) %>%
+  clean_names()
+
+
+
+model_predictors <- rf_model_2$finalModel$xNames
+# model_predictors
+
+missing_features <- setdiff(model_predictors, colnames(df_test_with_labels))
+# missing_features
+
+df_test_with_labels[missing_features] <- NA #Add the missing columns to the test set, filled with NAs
+
+
+x_test <- df_test_with_labels %>%
+  dplyr::select(all_of(model_predictors))
+
+
+#Predict disease severity
+#use the rf_model_2 to see if it can correctly guess which proteins are severe
+
+# predictions (make sure these are vectors, not data frames) --> Apply trained model to the test cohort
+test_predictions <- predict(rf_model_2, newdata = x_test)
+test_probabilities <- predict(rf_model_2, newdata = x_test, type = "prob")
+
+# If predict() returned a data frame (tidymodels), extract the column:
+if (is.data.frame(test_predictions)) test_predictions <- test_predictions$.pred
+
+# Probabilities column name can differ: "Severe" (caret) vs ".pred_Severe" (tidymodels)
+prob_severe <- if (is.data.frame(test_probabilities)) {
+  if ("Severe" %in% colnames(test_probabilities)) test_probabilities$Severe else test_probabilities$.pred_Severe
+} else {
+  test_probabilities[, "Severe"]
+}
+
+
+# Results table
+test_results_table <- tibble(
+  patient_id = df_test_with_labels$patient_id,
+  Actual = df_test_with_labels$group,
+  Predicted_Class = test_predictions,
+  Prob_Severe = prob_severe
+) %>%
+  mutate(Correct = ifelse(Actual == Predicted_Class, "Correct", "Wrong"))
+
+print(test_results_table)
+
+# Confusion matrix (predicted vs truth)
+final_metrics <- confusionMatrix(
+  factor(test_results_table$Predicted_Class, levels = levels(test_results_table$Actual)),
+  test_results_table$Actual,
+  positive = "Severe"
+)
+
+print(final_metrics)
+
 ```
+The final Random Forest model trained on the full training cohort demonstrated strong performance on the independent test cohort (n=10). The model achieved an accuracy of 90%, correctly classifying 9 out of 10 patients. Importantly, all Severe patients were correctly identified (Sensitivity = 1.00), while one non-Severe patient was misclassified (Specificity = 0.83). The balanced accuracy was 0.92 and Cohen’s Kappa was 0.80, indicating strong agreement beyond chance. These results suggest that the proteomic signature generalizes well to independent patients and maintains strong discriminatory ability. Although performance is strong, the small size of the independent test cohort results in wide confidence intervals and warrants validation in larger cohorts.
+
+
+
 
 # session info {.unnumbered}
 
