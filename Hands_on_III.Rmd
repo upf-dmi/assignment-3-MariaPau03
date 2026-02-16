@@ -38,13 +38,20 @@ How well does the Random Forest model separate non-Severe from Severe patients b
 # install.packages("tidymodels")
 # install.packages("parsnip")
 # install.packages("caret")
-
+# install.packages("recipies")
+# install.packages("pROC")
 
 library(tidyverse)
 library(readxl)
 library(janitor) #clean_names function
 library(dplyr)
+library(caret)
+library(recipes)
+library(pROC)
+library(rsample)
 
+
+#-----DATA PREPARATION --------------
 
 df <- read_excel("./1-s2.0-S0092867420306279-mmc3.xlsx", sheet = 2)
 df_cleaned <- clean_names(df) 
@@ -132,18 +139,29 @@ print(rf_model)
 ## recipie makes the workflow more professional, reproducible, and robust. Defines the data preprocessing steps as a "blueprint" and in exercise 3 when doing the test, I won't have to manually repeat the cleaning, just apply this blueprint. 
 
 
-library(caret)
-library(recipes)
-library(pROC)
 
 # Prepare data
 # Ensure names are clean and variables are ready
 df_final_preclean <- df_final %>% janitor::clean_names()
 
+#--- COHORT SPLIT & INTERNAL DIVISION ------
+set.seed(123)
+
+#Create an 80/20 split stratified by the outcome (group_d)
+data_split <- initial_split(df_final_preclean, prop = 0.8, strata = group_d)
+
+#Development cohort (80%)
+training_data <- training(data_split) #will have 24 observation, which is a 0.8% of the 31 ones initially
+
+#Internal testing (20%)
+internal_test_data <- testing(data_split)
+
+
+#-----CROSS-VALIDATION (with the development cohort)-------
 
 #Define the recipe (blueprint) (THIS IS DONE IN THE TEACHER SLIDES!!!!)
 # We keep your recipe steps, but we'll pass this directly into the caret 'train' function
-rf_recipe <- recipe(group_d ~ ., data = df_final_preclean) %>%
+rf_recipe <- recipe(group_d ~ ., data = training_data) %>%
   step_nzv(all_predictors()) %>%
   step_impute_median(all_numeric_predictors()) %>%
   step_normalize(all_numeric_predictors())
@@ -162,11 +180,11 @@ ctrl <- trainControl(
 p <- ncol(df_final_preclean) - 1 
 mtry_grid <- data.frame(mtry = c(1, 2, floor(sqrt(p)), floor(p/3), 10, 30))
 
-#train the model
-set.seed(123) # For reproducibility
+#------MODEL SELECTION & TRAINING-------
+
 rf_model_2 <- train(
   rf_recipe, 
-  data = df_final_preclean, 
+  data = training_data, 
   method = "rf",
   trControl = ctrl,
   tuneGrid = mtry_grid,
@@ -175,9 +193,19 @@ rf_model_2 <- train(
   importance = TRUE
 )
 
+#------ RESULTS ANALYSIS------
 
-# Display the Table (mtry vs Accuracy/Kappa)
+# Performance during Cross-validation (the 80%)
 print(rf_model_2)
+
+# Performance on the Internal Hold-out (the 20%)
+## This proves the model works on "unseen" data before going to the external cohort
+internal_preds <- predict(rf_model_2, newdata = internal_test_data)
+internal_cm <- confusionMatrix(internal_preds, internal_test_data$group_d)
+
+print("----Internal 20% test results:-----")
+print(internal_cm)
+
 
 # Plot the Realistic ROC Curve
 # Using the cross-validated predictions (prevents the "perfect square" look)
@@ -198,32 +226,34 @@ legend("bottomright",
        bty = "n")
 
 }
-#Generate the Confusion Matrix
-confusionMatrix(rf_model_2)
+
 
 
 
 ```
 
-As shown in the results, the "manual" model (rf_model) actually has a lower error rate (16,13%) than your recipie-based model (22,58%). Th emain reason is due to Feature Selection:
+As shown in the updated results, the "manual" model (Random Forest with 500 trees) achieved an Out-of-Bag (OOB) error rate of 19.35%. In contrast, the recipe-based model (using the 80/20 split and cross-validation) showed a slightly higher error rate on the internal test set of 28.57% (equivalent to 71.43% accuracy).
 
-- Manual model: manually removed proteins >20% NAs. This is likely left a very "strong" set of predictors.
+The difference in performance is largely due to how each approach handles the data:
 
-- Recipie model: ``` step_nzv() ``` is more gentle. It only removes columns that are almost entirely constant. It probably kept a lot of noisy porteins that the manual method discarded. 
+- Manual Model Performance: This model utilized all 31 samples (18 non-Severe, 13 Severe) to calculate its error estimate. By manually filtering proteins with >20% NAs, it likely retained a more concentrated set of high-quality predictors.
+
+- Recipe-based Model Performance: This model was restricted to a smaller training set (80% of the cohort) to maintain strict architectural separation. Because it had fewer samples to learn from, its accuracy on the internal 20% hold-out was naturally lower at 71.43%.
+
+- Feature Handling: The recipe model utilizes ```step_nzv()```, which is a conservative filter that removes variables with near-zero variance. This may have kept "noisy" proteins that the manual model's stricter NA threshold successfully eliminated.
 
 
-So, the manual model is technically better, but the recipie model is safer for exercise 3, so I'll stick with the ```final_fit ``` for the rest of the steps. 
+To further validate the model, the ROC Curve and the Confusion Matrix were analyzed. The model achieves an outstanding AUC (Area Under the Curve) of 0.907. This indicates a roughly 91% probability that the model will correctly rank a randomly chosen Severe patient higher (in terms of severity risk) than a non-Severe patient.
 
-Using 10-fold-cross-validation, the RF model was optimized by testing various mtry values. The optimal model used 30 predictors at each split, achieving a cross-validated accuracy of 85.8% and a kappa of 0.69%. This indicates the model has strong predictive power and geenralizes well beyond the training data. 
+- Cross-Validation: During the 10-fold cross-validation tuning process, the model reached a peak Accuracy of 81.67% (with mtry=40).
 
-(mtry is a tunning parameter that controls the randomness and diversity of the trees in the forest. To decide which protein best separates Severe from non-Severe), it doesn't look at all 1639 proteins at once, instead the model randomly picks a subset of proteins, and the size of that subset is mtry, so the tree can only choose the best protein from that specific subset. So mtry = 30 means that the model had enough options to fins strong patterns but enough randomness to stay flexible, reaching a peak accuracy of 0.858).
+- Internal Testing: On a hold-out test set (the 20% internal division), the model maintained an Accuracy of 71.43%.
 
-To further validate the model, the ROC Curve and the Confusion Matrix were analyzed. The model achieved an AUC of 0.917 which is considered an outstanding result for clinical classification. This indicates a 91,7% probability that the model will correctly rank a random Severe patient higher than a random non-Severe patient. 
+(mtry is a tunning parameter that controls the randomness and diversity of the trees in the forest. To decide which protein best separates Severe from non-Severe), it doesn't look at all 1639 proteins at once, instead the model randomly picks a subset of proteins, and the size of that subset is mtry, so the tree can only choose the best protein from that specific subset. So mtry = 30 means that the model had enough options to fins strong patterns but enough randomness to stay flexible, reaching a peak accuracy of 0.8167).
 
-And the cross-validated confusion matrix shows an average Accuracy of 87,1. The model correctly identified this group in 51,6% of cases, with only 6,5% misclassified as severe. Then, the model correctly identified severe cases in 35,5% of instances, with 6,5% misclassified as non-severe. 
+On the "unseen" 20% internal division, the model achieved an overall accuracy of 71,43%, correctly classifying 3 non_Severe and 2 Severe patients, misidentifying 1 non_Severe patient as Severe and 1 Severe patient as non_Severe one. Using "non_Severe" as the positive class, the model showed a sensitivity of 75% and a specificity of 66,67%. 
 
-All in all, the balance between sensitivity and specificity in these results confirms that the protein signatures identified are highly reliable markers for COVID-19 severity. 
-
+All in all, the proteomic signature is clearly a strong biological marker for disease severity. The model is highly sensitive, as shown by the sharp rise in the ROC curve. However, the drop from 81% accuracy in training to 71% in the internal test suggests some overfitting—likely due to the high number of predictors (1,638 proteins) compared to the small number of samples (24 patients in the training set). While the manual model shows a technically lower error rate (19.35%), the recipe-based model is the more robust choice for Exercise 3. It adheres to the Training Process Architecture by ensuring that the model's generalizability is tested on a truly "unseen" internal division before moving to the external cohort. The recipe model's AUC of 0.907 confirms that, despite the higher internal test error, it remains an excellent tool for separating non-Severe from Severe patients.
 
 # Exercise 2
 
@@ -321,6 +351,7 @@ new_headers <- df_test_raw[1, ] %>%
 
 colnames(df_test_raw)[3:ncol(df_test_raw)] <- new_headers
 
+#pivot to tidy format
 df_test_raw_final <- df_test_raw %>%
   slice(-1) %>%                     
   pivot_longer(
@@ -350,7 +381,7 @@ missing_features <- setdiff(model_predictors, colnames(df_test_with_labels))
 # missing_features
 
 df_test_with_labels[missing_features] <- NA #Add the missing columns to the test set, filled with NAs
-
+#This is done because RF requires the exact same column names in the exact order as the training data.
 
 x_test <- df_test_with_labels %>%
   dplyr::select(all_of(model_predictors))
@@ -395,7 +426,7 @@ final_metrics <- confusionMatrix(
 print(final_metrics)
 
 ```
-The final Random Forest model trained on the full training cohort demonstrated strong performance on the independent test cohort (n=10). The model achieved an accuracy of 90%, correctly classifying 9 out of 10 patients. Importantly, all Severe patients were correctly identified (Sensitivity = 1.00), while one non-Severe patient was misclassified (Specificity = 0.83). The balanced accuracy was 0.92 and Cohen’s Kappa was 0.80, indicating strong agreement beyond chance. These results suggest that the proteomic signature generalizes well to independent patients and maintains strong discriminatory ability. Although performance is strong, the small size of the independent test cohort results in wide confidence intervals and warrants validation in larger cohorts.
+The final Random Forest model trained on the full training cohort demonstrated strong performance on the independent test cohort (n=10). Because it was used the ```recipies``` framework, the test data was automatically preprocessed (imputed and normalized) using the parameters established during the training phase. The model achieved an accuracy of 90%, correctly classifying 9 out of 10 patients. Importantly, all Severe patients were correctly identified (Sensitivity = 1.00), while one non-Severe patient was misclassified (Specificity = 0.83). The balanced accuracy was 0.92 and Cohen’s Kappa was 0.80, indicating strong agreement between the model's predictions and the actual clinical labels. These results suggest that the proteomic signature generalizes well to independent patients and maintains strong discriminatory ability. The model's perfromance on the independent cohort (90% accuracy) is notably higher than its performance on the internal 20% hold-out (71,43%). This suggests that the proteomic signature is highly robust biological marker for severity that remains consistent across different patient groups. Although performance is strong, the small size of the independent test cohort results in wide confidence intervals and warrants validation in larger cohorts.
 
 
 
