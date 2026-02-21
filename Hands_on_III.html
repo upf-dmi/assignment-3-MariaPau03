@@ -1486,7 +1486,7 @@ font-size: 0.95em;
 
 <h1 class="title toc-ignore">Hands_on_III</h1>
 <h4 class="author">Maria Pau Pijoan (<a href="mailto:mariapau.pijoan01@estudiant.upf.edu" class="email">mariapau.pijoan01@estudiant.upf.edu</a>)</h4>
-<h4 class="date">Last update: 18 February, 2026</h4>
+<h4 class="date">Last update: 21 February, 2026</h4>
 
 </div>
 
@@ -1658,11 +1658,11 @@ print(rf_model)</code></pre>
 ##                      Number of trees: 500
 ## No. of variables tried at each split: 35
 ## 
-##         OOB estimate of  error rate: 12.9%
+##         OOB estimate of  error rate: 19.35%
 ## Confusion matrix:
 ##            non_Severe Severe class.error
 ## non_Severe         16      2   0.1111111
-## Severe              2     11   0.1538462</code></pre>
+## Severe              4      9   0.3076923</code></pre>
 </div>
 <div id="structured-machine-learning-workflow-recipe-based-approach" class="section level2">
 <h2>5. Structured machine learning workflow (Recipe-Based Approach)</h2>
@@ -1891,18 +1891,12 @@ tool for separating non-Severe from Severe patients.</p>
 Analysis</h1>
 <div id="objective-and-overview" class="section level2">
 <h2>1. Objective and overview</h2>
-<ul>
-<li>Goal of Exercise 2</li>
-</ul>
 <p>The goal of Exercise 2 is to identify and characterize proteins that
 are significantly associated with differences between predefined
 clinical groups. Through differential expression analysis and
 statistical testing, we aim to detect potential biomarkers that
 distinguish between conditions of interest and evaluate their biological
 and clinical relevance.</p>
-<ul>
-<li>Data sources and study design</li>
-</ul>
 <p>The analysis is based on a proteomic expression dataset containing
 quantitative measurements of circulating proteins across multiple
 patient samples. These measurements are integrated with corresponding
@@ -2434,20 +2428,9 @@ precision of these estimates and warrants cautious interpretation.</p>
 </div>
 <div id="performance-evaluation-on-external-cohort" class="section level2">
 <h2>5. Performance evaluation on external cohort</h2>
-<div id="confusion-matrix" class="section level3">
-<h3>5.1 Confusion matrix</h3>
-</div>
-<div id="accuracy" class="section level3">
-<h3>5.2 Accuracy</h3>
-</div>
-<div id="sensitivity-and-specificity" class="section level3">
-<h3>5.3 Sensitivity and specificity</h3>
-</div>
-<div id="balanced-accuracy" class="section level3">
-<h3>5.4 Balanced accuracy</h3>
-</div>
-<div id="cohens-kappa" class="section level3">
-<h3>5.5 Cohen’s kappa</h3>
+<div id="confusion-matrix-accuracy-sensitivity-specificity-and-cohens-kappa" class="section level3">
+<h3>5.1 Confusion matrix, accuracy, sensitivity, specificity and Cohen’s
+kappa</h3>
 <pre class="r"><code># Confusion matrix (predicted vs truth)
 final_metrics &lt;- confusionMatrix(
   factor(test_results_table$Predicted_Class, levels = levels(test_results_table$Actual)),

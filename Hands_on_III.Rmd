@@ -331,11 +331,8 @@ All in all, the proteomic signature is clearly a strong biological marker for di
 # Exercise 2 – Differential Expression / Biomarker Discovery Analysis
 
 ## 1. Objective and overview
-- Goal of Exercise 2  
 
 The goal of Exercise 2 is to identify and characterize proteins that are significantly associated with differences between predefined clinical groups. Through differential expression analysis and statistical testing, we aim to detect potential biomarkers that distinguish between conditions of interest and evaluate their biological and clinical relevance.
-
-- Data sources and study design  
 
 The analysis is based on a proteomic expression dataset containing quantitative measurements of circulating proteins across multiple patient samples. These measurements are integrated with corresponding clinical metadata, including group classification variables that define the comparison of interest (e.g., disease status, severity, or treatment group).
 The study follows a comparative observational design in which protein expression levels are statistically compared between groups. Appropriate preprocessing, quality control and multiple testing correction procedures are applied to ensure robust and reproducible results.
@@ -737,11 +734,7 @@ Calibration performance was assessed in the external cohort using a calibration 
 
 ## 5. Performance evaluation on external cohort
 
-### 5.1 Confusion matrix  
-### 5.2 Accuracy  
-### 5.3 Sensitivity and specificity  
-### 5.4 Balanced accuracy  
-### 5.5 Cohen’s kappa  
+### 5.1 Confusion matrix, accuracy, sensitivity, specificity and Cohen's kappa
 
 ```{r}
 # Confusion matrix (predicted vs truth)
