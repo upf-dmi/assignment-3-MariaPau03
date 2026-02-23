@@ -2,7 +2,7 @@
 ---
 title: "DMI - Hands on 3: Machine Learning to classify COVID-19 severity"
 subtitle: "Classification of COVID-19 clinical outcomes through Random Forest modeling"
-author: "Maria Pau Pijoan (mariapau.pijoan01@estudiant.upf.edu)"
+author: "Maria Pau Pijoan Manresa (mariapau.pijoan01@estudiant.upf.edu)"
 date: "Last update: `r format(Sys.time(), '%d %B, %Y')`"
 output:
   html_document:
