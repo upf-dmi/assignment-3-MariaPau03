@@ -527,9 +527,9 @@ pheatmap(
 
 ```
 
-The heatmap for the statistically significant proteins is currently empty, which directly aligns with the findings from the volcano plot. While the RF model identified a strong predictive signature (AUC = 0'957), no individual protein reached the strict threshold of p-adjusted < 0,05 required for inclusion in this specific visualization.
+The heatmap visualizes the expression patterns of the top 25 proteins identified by the RF model. Although these proteins did not meet the strict FDR-adjusted p-value threshold of 0.05 in the univariate analysis, the heatmap reveals a clear and coordinated proteomic signature.
 
-This "missing" heatmap is an important analytical result: it proves that the difference between Severe and non-Severe patients in this cohort is not driven by a few "magic bullet" proteins that are perfectly clean across all samples. Instead, the biological signal is multivariate. The severity signature is likely composed of many proteins (such as SAA1, SAA2 and CRP) that show strong trends toward upregulation but possess enough inter-patient variability that they do not pass a formal, corrected univariate test. This further justifies the use of a RF approach, which can aggregate these subtle, non-significant individual signals into a highly accurate classification tool.
+The hierarchical clustering successfully separates the patients into two main groups that correspond closely with their clinical status. As shown by the top annotation bar, severe patients (pink) exhibit a distinct cluster characterized by the upregulation of several key proteins (indicated by the red blocks), while non-Severe patients (cyan) show generally lower expression of these markers (indicated by the blue blocks). This visual evidence justifies the RF's high AUC of 0.957, the model is identifying a "multivariate signature" where the combined signal of these 25 proteins provides strong discriminatory power that univariate statistical tests failed to capture in this small cohort.
 
 ## Biological interpretation
 
