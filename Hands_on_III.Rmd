@@ -522,9 +522,13 @@ ggplot(volcano_df_proteins, aes(x = log2FC, y = negLog10FDR)) +
 The volcano plot (Volcano plot for most variable genes: Severe vs non-Severe) and corresponding data for the Top 25 Random Forest predictors reveal a compelling biological trend, despite not meeting the strict threshold for formal statistical significance. This volcano plot displays the top predictors identified by the model, labeled by their corresponding gene symbols for biological clarity. A "good" log2FC is typically defined as an absolute value greater than 1.0 (which means the protein is either at least twice as abundant or half as abundant in severe patients compared to non-severe ones). In the severe group, the proteins (and its gene symbol) are massively increased (locking at the volcano df :
 
 Protein ID,Gene Symbol,log2FC,Fold Change (linear)
+
 p0dji8,SAA1,3.17,~9.0x higher
+
 p0dji9,SAA2,2.59,~6.0x higher
+
 p02741,CRP,1.81,~3.5x higher
+
 p18428,LBP,1.07,~2.1x higher
 
 
